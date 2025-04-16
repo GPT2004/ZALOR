@@ -78,5 +78,22 @@ router.get('/search', auth, async (req, res) => {
     res.status(500).json({ msg: 'Lỗi server khi tìm kiếm bạn bè' });
   }
 });
+// [GET] Lấy thông tin người dùng theo ID
+router.get('/:id', auth, async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id).select('-password');
+    if (!user) return res.status(404).json({ msg: 'User not found' });
 
+    const currentUser = await User.findById(req.user.id);
+    const isFriend = currentUser.friends.some(friendId => friendId.toString() === req.params.id);
+    if (!isFriend && req.user.id !== req.params.id) {
+      return res.status(403).json({ msg: 'Bạn không có quyền xem thông tin của người dùng này' });
+    }
+
+    res.json(user);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ msg: 'Server error' });
+  }
+});
 module.exports = router;

@@ -38,6 +38,66 @@ body {
   font-size: 24px;
 }
 
+/* Thông báo (Notification) */
+.home-container .notification {
+  background: #2c3e50;
+  border-radius: 5px;
+  padding: 10px;
+  margin-bottom: 10px;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  cursor: pointer;
+  transition: background 0.3s ease;
+}
+
+.home-container .notification:hover {
+  background: #3a4b5c;
+}
+
+.home-container .notification-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.home-container .notification-icon {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+}
+
+.home-container .notification-title {
+  font-weight: bold;
+  font-size: 14px;
+  color: #fff;
+  flex: 1;
+}
+
+.home-container .notification-time {
+  font-size: 12px;
+  color: #aaa;
+}
+
+.home-container .notification-content {
+  font-size: 12px;
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.home-container .notification-unread {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 10px;
+  height: 10px;
+  background-color: red;
+  border-radius: 50%;
+}
+
 /* Thanh tìm kiếm */
 .home-container .search-bar {
   display: flex;
@@ -199,24 +259,84 @@ body {
 .home-container .friends-list .friend-item {
   display: flex;
   align-items: center;
-  gap: 10px;
   padding: 10px;
-  border-bottom: 1px solid #2c3e50;
   cursor: pointer;
+  position: relative;
+  border-bottom: 1px solid #2c3e50;
   transition: background 0.3s ease;
 }
 
 .home-container .friends-list .friend-item.active {
-  background: #2c3e50;
+  background: #3a3b3c;
 }
 
 .home-container .friends-list .friend-item:last-child {
   border-bottom: none;
 }
 
+.home-container .friend-info,
+.home-container .group-info {
+  display: flex;
+  align-items: center;
+  flex: 1;
+}
+
+.home-container .friend-avatar-container {
+  position: relative;
+  margin-right: 10px;
+}
+
 .home-container .friend-avatar {
   width: 30px;
   height: 30px;
+  border-radius: 50%;
+}
+
+.home-container .status-indicator {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+}
+
+.home-container .status-online {
+  background-color: #28a745;
+}
+
+.home-container .status-offline {
+  background-color: #6c757d;
+}
+
+.home-container .friend-name-container {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+
+.home-container .friend-name {
+  font-weight: bold;
+  color: #fff;
+}
+
+.home-container .last-message {
+  font-size: 12px;
+  color: #aaa;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 200px; /* Điều chỉnh theo thiết kế */
+}
+
+.home-container .unread-indicator {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 10px;
+  height: 10px;
+  background-color: red;
   border-radius: 50%;
 }
 
@@ -261,24 +381,39 @@ body {
 .home-container .groups .groups-list .friend-item {
   display: flex !important;
   align-items: center !important;
-  justify-content: space-between !important;
-  gap: 10px !important;
   padding: 10px !important;
-  border-bottom: 1px solid #2c3e50 !important;
   cursor: pointer !important;
+  position: relative !important;
+  border-bottom: 1px solid #2c3e50 !important;
   transition: background 0.3s ease !important;
-  background: #2c3e50 !important; /* Màu nền giống trong ảnh mong muốn */
-  border-radius: 5px !important; /* Bo góc giống trong ảnh */
+  background: #2c3e50 !important; /* Màu nền giống phần bạn bè */
+  border-radius: 5px !important; /* Bo góc giống phần bạn bè */
   margin-bottom: 5px !important; /* Khoảng cách giữa các nhóm */
 }
 
 .home-container .groups .groups-list .friend-item.active {
-  background: #3a4b5c !important; /* Màu nền khi được chọn */
+  background: #3a3b3c !important; /* Màu nền khi được chọn, giống phần bạn bè */
 }
 
 .home-container .groups .groups-list .friend-item:last-child {
   border-bottom: none !important;
   margin-bottom: 0 !important;
+}
+
+.home-container .groups .groups-list .friend-item:hover {
+  background: #3a4b5c !important; /* Hiệu ứng hover giống phần bạn bè */
+}
+
+.home-container .groups .groups-list .group-info {
+  display: flex !important;
+  align-items: center !important;
+  flex: 1 !important;
+}
+
+.home-container .groups .groups-list .group-info-content {
+  display: flex !important;
+  align-items: center !important;
+  flex: 1 !important;
 }
 
 .home-container .groups .groups-list .friend-avatar {
@@ -287,21 +422,34 @@ body {
   border-radius: 50% !important;
 }
 
-.home-container .groups .groups-list .group-info {
+.home-container .groups .groups-list .friend-name-container {
   display: flex !important;
-  align-items: center !important;
-  gap: 10px !important;
+  flex-direction: column !important;
   flex: 1 !important;
-  cursor: pointer !important;
 }
 
-.home-container .groups .groups-list .group-info span {
-  flex: 1 !important;
+.home-container .groups .groups-list .friend-name {
+  font-weight: bold !important;
+  color: #fff !important;
+}
+
+.home-container .groups .groups-list .last-message {
+  font-size: 12px !important;
+  color: #aaa !important;
+  white-space: nowrap !important;
   overflow: hidden !important;
   text-overflow: ellipsis !important;
-  white-space: nowrap !important;
-  color: #fff !important; /* Đảm bảo tên nhóm hiển thị màu trắng */
-  font-size: 14px !important; /* Kích thước chữ giống trong ảnh */
+  max-width: 200px !important; /* Điều chỉnh theo thiết kế */
+}
+
+.home-container .groups .groups-list .unread-indicator {
+  position: absolute !important;
+  top: 10px !important;
+  right: 10px !important;
+  width: 10px !important;
+  height: 10px !important;
+  background-color: red !important;
+  border-radius: 50% !important;
 }
 
 .home-container .groups .groups-list .info-button {
@@ -310,12 +458,12 @@ body {
   color: #fff !important;
   font-size: 16px !important;
   cursor: pointer !important;
-  display: none !important;
   padding: 0 5px !important;
+  display: none !important; /* Ẩn nút "..." mặc định */
 }
 
 .home-container .groups .groups-list .friend-item:hover .info-button {
-  display: block !important;
+  display: block !important; /* Hiển thị nút "..." khi hover */
 }
 
 /* Main content */
@@ -683,6 +831,7 @@ body {
   color: white;
   cursor: pointer;
 }
+
 /* Kết quả tìm kiếm trong sidebar-header */
 .home-container .search-results {
   margin: 10px 20px 20px;
@@ -763,4 +912,69 @@ body {
 
 .home-container .search-results .friend-item:hover .info-button {
   display: block;
+}
+
+.status-indicator {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+}
+
+.status-online {
+  background-color: #28a745; /* Màu xanh lá cho trạng thái online */
+}
+
+.status-offline {
+  background-color: #6c757d; /* Màu xám cho trạng thái offline */
+}
+
+/* Đảm bảo avatar container có position relative để status indicator định vị đúng */
+.friend-avatar-container,
+.chat-header-avatar-container {
+  position: relative;
+  display: inline-block;
+}
+
+/* Điều chỉnh kích thước avatar nếu cần */
+.friend-avatar,
+.chat-header-avatar {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+}
+.file-message {
+  display: flex;
+  align-items: center;
+  margin: 5px 0;
+  font-family: 'Roboto', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; /* Đồng bộ font */
+}
+
+.file-link {
+  display: flex;
+  align-items: center;
+  text-decoration: none;
+  color: #1a73e8;
+  padding: 5px 10px;
+  border-radius: 5px;
+  background-color: #f0f0f0;
+  font-family: 'Roboto', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; /* Đồng bộ font */
+}
+
+.file-link:hover {
+  background-color: #e0e0e0;
+}
+
+.file-icon {
+  margin-right: 5px;
+  font-size: 18px;
+}
+
+.file-text {
+  font-size: 14px;
+  font-family: 'Roboto', 'Arial', sans-serif;
+  word-break: break-all;
 }

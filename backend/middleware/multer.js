@@ -15,13 +15,25 @@ const storage = multer.diskStorage({
 const upload = multer({
   storage: storage,
   fileFilter: (req, file, cb) => {
-    const filetypes = /jpeg|jpg|png|mp4|mov/;
+    // Mở rộng danh sách định dạng file được hỗ trợ
+    const filetypes = /jpeg|jpg|png|mp4|mov|doc|docx|pdf|txt/;
     const extname = filetypes.test(path.extname(file.originalname).toLowerCase());
-    const mimetype = filetypes.test(file.mimetype);
+
+    // Kiểm tra mimetype để đảm bảo loại file hợp lệ
+    const allowedMimetypes = [
+      'image/jpeg', 'image/jpg', 'image/png', // Ảnh
+      'video/mp4', 'video/quicktime', // Video (bao gồm .mov)
+      'application/pdf', // PDF
+      'application/msword', // .doc
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document', // .docx
+      'text/plain', // .txt
+    ];
+    const mimetype = allowedMimetypes.includes(file.mimetype);
+
     if (extname && mimetype) {
       return cb(null, true);
     } else {
-      cb(new Error('Chỉ hỗ trợ file ảnh (jpeg, jpg, png) hoặc video (mp4, mov)!'));
+      cb(new Error('Chỉ hỗ trợ file ảnh (jpeg, jpg, png), video (mp4, mov), hoặc tài liệu (doc, docx, pdf, txt)!'));
     }
   },
   limits: { fileSize: 10 * 1024 * 1024 }, // Giới hạn kích thước file: 10MB

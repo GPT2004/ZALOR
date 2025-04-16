@@ -11,6 +11,7 @@ const UserSchema = new mongoose.Schema({
   avatar: { type: String }, // URL của ảnh đại diện
   friends: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
   doNotDisturb: { type: Boolean, default: false }, // Thêm trường doNotDisturb
+  isOnline: { type: Boolean, default: false }, // Thêm trường isOnline
 });
 
 // Mã hóa mật khẩu trước khi lưu

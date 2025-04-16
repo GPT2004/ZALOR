@@ -140,7 +140,7 @@ router.patch('/requests/:requestId', auth, async (req, res) => {
 router.get('/', auth, async (req, res) => {
   try {
     const user = await User.findById(req.user.id)
-      .populate('friends', 'name avatar')
+      .populate('friends', 'name avatar isOnline')
       .select('friends');
     res.json(user.friends);
   } catch (err) {

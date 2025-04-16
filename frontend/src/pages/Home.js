@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import io from 'socket.io-client';
 import EmojiPicker from 'emoji-picker-react';
@@ -30,7 +30,6 @@ const Home = ({ onLogout, setIsAuthenticated }) => {
   const [user, setUser] = useState(null);
   const [searchGroupQuery, setSearchGroupQuery] = useState('');
   const [searchedGroups, setSearchedGroups] = useState([]);
-  const [selectedGroup, setSelectedGroup] = useState(null);
   const [selectedChat, setSelectedChat] = useState(null);
   const [messages, setMessages] = useState([]);
   const [message, setMessage] = useState('');
@@ -41,14 +40,19 @@ const Home = ({ onLogout, setIsAuthenticated }) => {
   const [selectedEmoji, setSelectedEmoji] = useState({});
   const [showEmojiReactions, setShowEmojiReactions] = useState(null);
   const [selectedProfile, setSelectedProfile] = useState(null);
+  const [selectedGroup, setSelectedGroup] = useState(null);
   const [currentView, setCurrentView] = useState('chat');
   const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [friendMessages, setFriendMessages] = useState({}); // Lưu tin nhắn của từng bạn bè
+  const [groupMessages, setGroupMessages] = useState({}); // Lưu tin nhắn của từng nhóm
+  const messagesEndRef = useRef(null); // Thêm ref để theo dõi cuộn
 
+  // Fetch dữ liệu ban đầu
   useEffect(() => {
     const fetchData = async () => {
       try {
         const { data: userData } = await getCurrentUser();
-        setUser(userData);
+        setUser(userData || null);
 
         const { data: requests } = await getFriendRequests();
         setFriendRequests(requests || []);
@@ -58,6 +62,28 @@ const Home = ({ onLogout, setIsAuthenticated }) => {
 
         const { data: groupsData } = await getGroups();
         setGroups(groupsData || []);
+
+        // Lấy tin nhắn cho mỗi bạn bè
+        const friendMessagesData = {};
+        for (const friend of friendsData) {
+          const response = await fetch(`http://localhost:5000/api/messages/${friend._id}`, {
+            headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
+          });
+          const messages = await response.json();
+          friendMessagesData[friend._id] = messages;
+        }
+        setFriendMessages(friendMessagesData);
+
+        // Lấy tin nhắn cho mỗi nhóm
+        const groupMessagesData = {};
+        for (const group of groupsData) {
+          const response = await fetch(`http://localhost:5000/api/messages/${group._id}?isGroup=true`, {
+            headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
+          });
+          const messages = await response.json();
+          groupMessagesData[group._id] = messages;
+        }
+        setGroupMessages(groupMessagesData);
       } catch (err) {
         console.error('Error fetching data:', err);
         if (err.response && err.response.status === 401) {
@@ -81,9 +107,96 @@ const Home = ({ onLogout, setIsAuthenticated }) => {
     fetchData();
   }, [navigate, setIsAuthenticated]);
 
+  // Gửi sự kiện userConnected khi người dùng đăng nhập
   useEffect(() => {
-    if (selectedChat && user) {
-      // Tạo roomId nhất quán với backend
+    if (user && user._id) {
+      socket.emit('userConnected', user._id);
+    }
+  }, [user]);
+
+  // Lắng nghe sự kiện messageRead để cập nhật trạng thái isRead
+  useEffect(() => {
+    socket.on('messageRead', ({ receiverId, senderId }) => {
+      if (selectedChat && !selectedChat.isGroup && selectedChat._id === receiverId && user?._id === senderId) {
+        setFriendMessages((prev) => ({
+          ...prev,
+          [receiverId]: prev[receiverId]?.map((msg) => ({ ...msg, isRead: true })),
+        }));
+        setMessages((prev) => prev.map((msg) => ({ ...msg, isRead: true })));
+      } else if (selectedChat?.isGroup && selectedChat._id === receiverId) {
+        setGroupMessages((prev) => ({
+          ...prev,
+          [receiverId]: prev[receiverId]?.map((msg) => ({ ...msg, isRead: true })),
+        }));
+        setMessages((prev) => prev.map((msg) => ({ ...msg, isRead: true })));
+      }
+    });
+
+    return () => {
+      socket.off('messageRead');
+    };
+  }, [selectedChat, user]);
+
+  // Lắng nghe trạng thái online/offline từ socket
+  useEffect(() => {
+    socket.on('userStatus', ({ userId, isOnline }) => {
+      setFriends((prev) =>
+        prev.map((friend) =>
+          friend._id === userId ? { ...friend, isOnline } : friend
+        )
+      );
+      setFriendRequests((prev) =>
+        prev.map((req) =>
+          req.from._id === userId ? { ...req, from: { ...req.from, isOnline } } : req
+        )
+      );
+      if (selectedChat && selectedChat._id === userId) {
+        setSelectedChat((prev) => ({ ...prev, isOnline }));
+      }
+    });
+
+    return () => {
+      socket.off('userStatus');
+    };
+  }, [selectedChat]);
+
+  // Cập nhật tin nhắn khi nhận được tin nhắn mới qua socket
+  useEffect(() => {
+    socket.on('receiveMessage', (message) => {
+      if (message && message.isGroup && message.receiverId) {
+        setGroupMessages((prev) => ({
+          ...prev,
+          [message.receiverId]: [...(prev[message.receiverId] || []), { ...message, isRead: user?._id !== message.senderId._id }],
+        }));
+      } else if (message && message.senderId && message.receiverId) {
+        const friendId = message.senderId._id === user?._id ? message.receiverId : message.senderId._id;
+        setFriendMessages((prev) => ({
+          ...prev,
+          [friendId]: [...(prev[friendId] || []), { ...message, isRead: user?._id !== message.senderId._id }],
+        }));
+      }
+
+      if (selectedChat && selectedChat._id) {
+        const chatId = message.isGroup ? message.receiverId : (message.senderId._id === user?._id ? message.receiverId : message.senderId._id);
+        if (chatId === selectedChat._id) {
+          setMessages((prev) => {
+            const exists = prev.some((msg) => msg._id === message._id);
+            if (!exists) {
+              return [...prev, { ...message, isRead: user?._id !== message.senderId._id }];
+            }
+            return prev;
+          });
+        }
+      }
+    });
+
+    return () => {
+      socket.off('receiveMessage');
+    };
+  }, [user, selectedChat]);
+
+  useEffect(() => {
+    if (selectedChat && user && user._id && selectedChat._id) {
       const roomId = selectedChat.isGroup
         ? selectedChat._id
         : [user._id, selectedChat._id].sort().join('-');
@@ -91,52 +204,67 @@ const Home = ({ onLogout, setIsAuthenticated }) => {
 
       const fetchMessages = async () => {
         try {
-          const response = await fetch(`http://localhost:5000/api/messages/${selectedChat._id}`, {
-            headers: {
-              Authorization: `Bearer ${localStorage.getItem('token')}`,
-            },
-          });
+          const response = await fetch(
+            `http://localhost:5000/api/messages/${selectedChat._id}?isGroup=${selectedChat.isGroup}`,
+            {
+              headers: {
+                Authorization: `Bearer ${localStorage.getItem('token')}`,
+              },
+            }
+          );
+          if (!response.ok) throw new Error('Failed to fetch messages');
           const data = await response.json();
+
           setMessages(data || []);
+
+          if (selectedChat.isGroup) {
+            setGroupMessages((prev) => ({
+              ...prev,
+              [selectedChat._id]: data,
+            }));
+          } else {
+            setFriendMessages((prev) => ({
+              ...prev,
+              [selectedChat._id]: data,
+            }));
+          }
         } catch (err) {
           console.error('Error fetching messages:', err);
         }
       };
+
       fetchMessages();
-
-      socket.on('receiveMessage', (message) => {
-        console.log('Received message via socket:', {
-          id: message._id,
-          content: message.content,
-          senderId: message.senderId?._id,
-          userId: user._id,
-        });
-        setMessages((prev) => {
-          // Kiểm tra xem tin nhắn đã tồn tại chưa
-          const exists = prev.some((msg) => msg._id === message._id);
-          // Chỉ thêm nếu chưa tồn tại và không phải của người dùng hiện tại
-          if (!exists && message.senderId?._id !== user._id) {
-            return [...prev, message];
-          }
-          return prev;
-        });
-      });
-
-      socket.on('messageRecalled', () => {
-        // Không làm gì, buộc người dùng reload trang
-      });
-
-      socket.on('messageEdited', () => {
-        // Không làm gì, buộc người dùng reload trang
-      });
-
-      return () => {
-        socket.off('receiveMessage');
-        socket.off('messageRecalled');
-        socket.off('messageEdited');
-      };
     }
   }, [selectedChat, user]);
+
+  const markAsRead = async () => {
+    if (selectedChat && user && user._id && messages.some((msg) => !msg.isRead && msg.senderId._id !== user._id)) {
+      try {
+        await fetch(`http://localhost:5000/api/messages/mark-read/${selectedChat._id}`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('token')}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ isGroup: selectedChat.isGroup }),
+        });
+        setMessages((prev) => prev.map((msg) => ({ ...msg, isRead: true })));
+        if (selectedChat.isGroup) {
+          setGroupMessages((prev) => ({
+            ...prev,
+            [selectedChat._id]: prev[selectedChat._id]?.map((msg) => ({ ...msg, isRead: true })),
+          }));
+        } else {
+          setFriendMessages((prev) => ({
+            ...prev,
+            [selectedChat._id]: prev[selectedChat._id]?.map((msg) => ({ ...msg, isRead: true })),
+          }));
+        }
+      } catch (err) {
+        console.error('Error marking as read:', err);
+      }
+    }
+  };
 
   const handleLogout = () => {
     localStorage.removeItem('token');
@@ -147,8 +275,8 @@ const Home = ({ onLogout, setIsAuthenticated }) => {
   const handleAddFriend = () => {
     setCurrentView('friends');
     setSelectedChat(null);
-    setSelectedGroup(null);
     setSelectedProfile(null);
+    setSelectedGroup(null);
   };
 
   const toggleDropdown = () => {
@@ -160,7 +288,7 @@ const Home = ({ onLogout, setIsAuthenticated }) => {
   };
 
   const handleProfileInfo = () => {
-    setSelectedProfile(user);
+    setSelectedProfile(user || null);
     setSelectedChat(null);
     setSelectedGroup(null);
     setCurrentView('chat');
@@ -174,8 +302,8 @@ const Home = ({ onLogout, setIsAuthenticated }) => {
   const handleCreateGroupPage = () => {
     setCurrentView('create-group');
     setSelectedChat(null);
-    setSelectedGroup(null);
     setSelectedProfile(null);
+    setSelectedGroup(null);
   };
 
   const handleAcceptRequest = async (requestId) => {
@@ -219,8 +347,6 @@ const Home = ({ onLogout, setIsAuthenticated }) => {
     setSearchedGroups(combinedResults);
   };
 
-  // Removed unused handleJoinGroup function to resolve the error.
-
   const handleLeaveGroup = async (groupId) => {
     try {
       await leaveGroup(groupId);
@@ -254,11 +380,15 @@ const Home = ({ onLogout, setIsAuthenticated }) => {
     setCurrentView('chat');
   };
 
-  const handleSelectChat = (chat, isGroup = false) => {
-    setSelectedChat({ ...chat, isGroup });
-    setSelectedGroup(null);
+  const handleSelectChat = async (chat, isGroup = false) => {
+    setSelectedChat({ ...chat, isGroup } || null);
     setSelectedProfile(null);
+    setSelectedGroup(null);
     setCurrentView('chat');
+    // Đánh dấu tin nhắn đã xem ngay khi nhấp
+    if (messages.some((msg) => !msg.isRead && msg.senderId._id !== user?._id)) {
+      await markAsRead();
+    }
   };
 
   const handleShowProfile = (userId) => {
@@ -268,24 +398,31 @@ const Home = ({ onLogout, setIsAuthenticated }) => {
       setSelectedChat(null);
       setSelectedGroup(null);
       setCurrentView('chat');
+    } else {
+      console.error('Friend not found in friends list:', userId);
+      alert('Không tìm thấy thông tin người dùng này trong danh sách bạn bè.');
     }
   };
 
   const sendMessage = async () => {
     if (!message.trim() && !file) return;
 
-    // Tạo tin nhắn tạm thời với ID duy nhất
+    if (!selectedChat || !selectedChat._id || !user || !user._id) {
+      console.error('Cannot send message: selectedChat or user is null');
+      return;
+    }
+
     const tempId = `temp-${Date.now()}-${Math.random()}`;
     const tempMessage = {
       _id: tempId,
       senderId: user,
       content: message,
-      type: file ? (file.type.startsWith('image') ? 'image' : 'video') : 'text',
+      type: file ? (file.type.startsWith('image') ? 'image' : file.type.startsWith('video') ? 'video' : 'file') : 'text',
       createdAt: new Date().toISOString(),
       isRecalled: false,
+      isRead: true,
     };
 
-    // Thêm tin nhắn tạm thời
     setMessages((prev) => [...prev, tempMessage]);
 
     const formData = new FormData();
@@ -310,19 +447,27 @@ const Home = ({ onLogout, setIsAuthenticated }) => {
       }
 
       const newMessage = await response.json();
-      console.log('New message from server:', newMessage);
-
-      // Thay thế tin nhắn tạm thời bằng tin nhắn thực
       setMessages((prev) => {
-        // Lọc bỏ tin nhắn tạm thời
         const filtered = prev.filter((msg) => msg._id !== tempId);
-        // Kiểm tra xem tin nhắn thực đã tồn tại chưa
         const exists = filtered.some((msg) => msg._id === newMessage._id);
         if (!exists) {
-          return [...filtered, { ...newMessage, senderId: user }]; // Gán senderId để đảm bảo hiển thị bên phải
+          return [...filtered, { ...newMessage, senderId: user }];
         }
         return filtered;
       });
+
+      if (selectedChat.isGroup) {
+        setGroupMessages((prev) => ({
+          ...prev,
+          [selectedChat._id]: [...(prev[selectedChat._id] || []), newMessage],
+        }));
+      } else {
+        const friendId = selectedChat._id;
+        setFriendMessages((prev) => ({
+          ...prev,
+          [friendId]: [...(prev[friendId] || []), newMessage],
+        }));
+      }
 
       setMessage('');
       setFile(null);
@@ -330,7 +475,6 @@ const Home = ({ onLogout, setIsAuthenticated }) => {
       setShowEmojiPicker(false);
     } catch (err) {
       console.error('Error sending message:', err);
-      // Xóa tin nhắn tạm thời nếu thất bại
       setMessages((prev) => prev.filter((msg) => msg._id !== tempId));
     }
   };
@@ -424,6 +568,15 @@ const Home = ({ onLogout, setIsAuthenticated }) => {
     return `${d.getHours()}:${d.getMinutes().toString().padStart(2, '0')}`;
   };
 
+  const getDisplayMessage = (messages) => {
+    if (!messages || messages.length === 0) return null;
+    return messages[messages.length - 1];
+  };
+
+  const hasUnreadMessages = (messages) => {
+    return messages?.some((msg) => msg?.senderId?._id !== user?._id && !msg.isRead) || false;
+  };
+
   return (
     <div className="home-container">
       <div className="sidebar">
@@ -454,12 +607,29 @@ const Home = ({ onLogout, setIsAuthenticated }) => {
                       className="friend-info"
                       onClick={() => handleSelectChat(item, false)}
                     >
-                      <img
-                        src={item.avatar || 'https://via.placeholder.com/30'}
-                        alt="Avatar"
-                        className="friend-avatar"
-                      />
-                      <span>{item.name || 'Không xác định'}</span>
+                      <div className="friend-avatar-container">
+                        <img
+                          src={item.avatar || 'https://via.placeholder.com/30'}
+                          alt="Avatar"
+                          className="friend-avatar"
+                        />
+                        <span
+                          className={`status-indicator ${
+                            item.isOnline ? 'status-online' : 'status-offline'
+                          }`}
+                        ></span>
+                      </div>
+                      <div className="friend-name-container">
+                        <span className="friend-name">{item.name || 'Không xác định'}</span>
+                        {friendMessages[item._id] && friendMessages[item._id].length > 0 && (
+                          <span className="last-message">
+                            {getDisplayMessage(friendMessages[item._id])?.content}
+                          </span>
+                        )}
+                      </div>
+                      {hasUnreadMessages(friendMessages[item._id]) && (
+                        <span className="unread-indicator"></span>
+                      )}
                     </div>
                   ) : (
                     <div className="group-info">
@@ -467,12 +637,24 @@ const Home = ({ onLogout, setIsAuthenticated }) => {
                         className="group-info-content"
                         onClick={() => handleSelectChat(item, true)}
                       >
-                        <img
-                          src={item.avatar || 'https://via.placeholder.com/30'}
-                          alt="Group Avatar"
-                          className="friend-avatar"
-                        />
-                        <span>{item.name || 'Tên nhóm không xác định'}</span>
+                        <div className="friend-avatar-container">
+                          <img
+                            src={item.avatar || 'https://via.placeholder.com/30'}
+                            alt="Group Avatar"
+                            className="friend-avatar"
+                          />
+                        </div>
+                        <div className="friend-name-container">
+                          <span className="friend-name">{item.name || 'Tên nhóm không xác định'}</span>
+                          {groupMessages[item._id] && groupMessages[item._id].length > 0 && (
+                            <span className="last-message">
+                              {getDisplayMessage(groupMessages[item._id])?.content}
+                            </span>
+                          )}
+                        </div>
+                        {hasUnreadMessages(groupMessages[item._id]) && (
+                          <span className="unread-indicator"></span>
+                        )}
                       </div>
                       <button
                         className="info-button"
@@ -502,11 +684,18 @@ const Home = ({ onLogout, setIsAuthenticated }) => {
                     friendRequests.map((request) => (
                       <div key={request._id} className="request-item">
                         <div className="request-info">
-                          <img
-                            src={request.from?.avatar || 'https://via.placeholder.com/30'}
-                            alt="Avatar"
-                            className="request-avatar"
-                          />
+                          <div className="request-avatar-container">
+                            <img
+                              src={request.from?.avatar || 'https://via.placeholder.com/30'}
+                              alt="Avatar"
+                              className="request-avatar"
+                            />
+                            <span
+                              className={`status-indicator ${
+                                request.from?.isOnline ? 'status-online' : 'status-offline'
+                              }`}
+                            ></span>
+                          </div>
                           <span>{request.from?.name || 'Không xác định'}</span>
                         </div>
                         <div className="request-actions">
@@ -541,12 +730,31 @@ const Home = ({ onLogout, setIsAuthenticated }) => {
                     }`}
                     onClick={() => handleSelectChat(friend, false)}
                   >
-                    <img
-                      src={friend.avatar || 'https://via.placeholder.com/30'}
-                      alt="Avatar"
-                      className="friend-avatar"
-                    />
-                    <span>{friend.name || 'Không xác định'}</span>
+                    <div className="friend-info">
+                      <div className="friend-avatar-container">
+                        <img
+                          src={friend.avatar || 'https://via.placeholder.com/30'}
+                          alt="Avatar"
+                          className="friend-avatar"
+                        />
+                        <span
+                          className={`status-indicator ${
+                            friend.isOnline ? 'status-online' : 'status-offline'
+                          }`}
+                        ></span>
+                      </div>
+                      <div className="friend-name-container">
+                        <span className="friend-name">{friend.name || 'Không xác định'}</span>
+                        {friendMessages[friend._id] && friendMessages[friend._id].length > 0 && (
+                          <span className="last-message">
+                            {getDisplayMessage(friendMessages[friend._id])?.content}
+                          </span>
+                        )}
+                      </div>
+                      {hasUnreadMessages(friendMessages[friend._id]) && (
+                        <span className="unread-indicator"></span>
+                      )}
+                    </div>
                   </div>
                 ))
               ) : (
@@ -570,27 +778,41 @@ const Home = ({ onLogout, setIsAuthenticated }) => {
                       selectedChat && selectedChat._id === group._id ? 'active' : ''
                     }`}
                   >
-                    <div
-                      className="group-info"
-                      onClick={() => handleSelectChat(group, true)}
-                    >
-                      <img
-                        src={
-                          group.avatar
-                            ? group.avatar
-                            : 'https://via.placeholder.com/30'
-                        }
-                        alt="Group Avatar"
-                        className="friend-avatar"
-                      />
-                      <span>{group.name || 'Tên nhóm không xác định'}</span>
+                    <div className="group-info">
+                      <div
+                        className="group-info-content"
+                        onClick={() => handleSelectChat(group, true)}
+                      >
+                        <div className="friend-avatar-container">
+                          <img
+                            src={
+                              group.avatar
+                                ? group.avatar
+                                : 'https://via.placeholder.com/30'
+                            }
+                            alt="Group Avatar"
+                            className="friend-avatar"
+                          />
+                        </div>
+                        <div className="friend-name-container">
+                          <span className="friend-name">{group.name || 'Tên nhóm không xác định'}</span>
+                          {groupMessages[group._id] && groupMessages[group._id].length > 0 && (
+                            <span className="last-message">
+                              {getDisplayMessage(groupMessages[group._id])?.content}
+                            </span>
+                          )}
+                        </div>
+                        {hasUnreadMessages(groupMessages[group._id]) && (
+                          <span className="unread-indicator"></span>
+                        )}
+                      </div>
+                      <button
+                        className="info-button"
+                        onClick={() => handleShowGroupInfo(group)}
+                      >
+                        ...
+                      </button>
                     </div>
-                    <button
-                      className="info-button"
-                      onClick={() => handleShowGroupInfo(group)}
-                    >
-                      ...
-                    </button>
                   </div>
                 ))
               ) : (
@@ -604,20 +826,23 @@ const Home = ({ onLogout, setIsAuthenticated }) => {
       <div className="main-content">
         <div className="chat-header">
           <div className="chat-header-info">
-            {selectedChat && !selectedProfile && currentView === 'chat' && (
+            {selectedChat && !selectedProfile && !selectedGroup && currentView === 'chat' && (
               <>
-                <img
-                  src={selectedChat.avatar || 'https://via.placeholder.com/40'}
-                  alt="Avatar"
-                  className="chat-header-avatar"
-                />
+                <div className="chat-header-avatar-container">
+                  <img
+                    src={selectedChat.avatar || 'https://via.placeholder.com/40'}
+                    alt="Avatar"
+                    className="chat-header-avatar"
+                  />
+                  <span
+                    className={`status-indicator ${
+                      selectedChat.isOnline ? 'status-online' : 'status-offline'
+                    }`}
+                  ></span>
+                </div>
                 <h2
-                  onClick={() => {
-                    if (!selectedChat.isGroup) {
-                      handleShowProfile(selectedChat._id);
-                    }
-                  }}
-                  style={{ cursor: selectedChat.isGroup ? 'default' : 'pointer' }}
+                  onClick={() => !selectedChat.isGroup && handleShowProfile(selectedChat._id)}
+                  style={{ cursor: !selectedChat.isGroup ? 'pointer' : 'default' }}
                 >
                   {selectedChat.name}
                 </h2>
@@ -625,12 +850,31 @@ const Home = ({ onLogout, setIsAuthenticated }) => {
             )}
             {selectedProfile && currentView === 'chat' && (
               <>
-                <img
-                  src={selectedProfile.avatar || 'https://via.placeholder.com/40'}
-                  alt="Avatar"
-                  className="chat-header-avatar"
-                />
+                <div className="chat-header-avatar-container">
+                  <img
+                    src={selectedProfile.avatar || 'https://via.placeholder.com/40'}
+                    alt="Avatar"
+                    className="chat-header-avatar"
+                  />
+                  <span
+                    className={`status-indicator ${
+                      selectedProfile.isOnline ? 'status-online' : 'status-offline'
+                    }`}
+                  ></span>
+                </div>
                 <h2>{selectedProfile.name}</h2>
+              </>
+            )}
+            {selectedGroup && currentView === 'chat' && (
+              <>
+                <div className="chat-header-avatar-container">
+                  <img
+                    src={selectedGroup.avatar || 'https://via.placeholder.com/40'}
+                    alt="Group Avatar"
+                    className="chat-header-avatar"
+                  />
+                </div>
+                <h2>{selectedGroup.name}</h2>
               </>
             )}
             {currentView === 'create-group' && <h2>Tạo nhóm mới</h2>}
@@ -693,7 +937,7 @@ const Home = ({ onLogout, setIsAuthenticated }) => {
               />
             ) : selectedChat ? (
               <div className="chat-box">
-                <div className="messages">
+                <div className="messages" ref={messagesEndRef}>
                   {messages.map((msg) => (
                     <div
                       key={msg._id}
@@ -722,6 +966,21 @@ const Home = ({ onLogout, setIsAuthenticated }) => {
                             )}
                             {msg.type === 'video' && (
                               <video controls src={msg.content} className="message-media" />
+                            )}
+                            {msg.type === 'file' && (
+                              <div className="file-message">
+                                <a
+                                  href={msg.content}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="file-link"
+                                >
+                                  <span className="file-icon">📄</span>
+                                  <span className="file-text">
+                                    {msg.fileName || 'Tải file'}
+                                  </span>
+                                </a>
+                              </div>
                             )}
                             {msg.type === 'emoji' && <p>{msg.content}</p>}
                             <div className="message-footer">
@@ -797,13 +1056,23 @@ const Home = ({ onLogout, setIsAuthenticated }) => {
                       <EmojiPicker onEmojiClick={handleEmojiSelect} />
                     </div>
                   )}
-                  <button className="icon-button">📷</button>
+                  <input
+                    type="file"
+                    id="image-upload"
+                    style={{ display: 'none' }}
+                    onChange={handleFileChange}
+                    accept="image/*"
+                    capture="environment"
+                  />
+                  <label htmlFor="image-upload" className="icon-button">
+                    📷
+                  </label>
                   <input
                     type="file"
                     id="file-upload"
                     style={{ display: 'none' }}
                     onChange={handleFileChange}
-                    accept="image/*,video/*"
+                    accept=".doc,.docx,.pdf,.txt"
                   />
                   <label htmlFor="file-upload" className="icon-button">
                     📎
@@ -823,8 +1092,10 @@ const Home = ({ onLogout, setIsAuthenticated }) => {
                   <div className="preview-container">
                     {file.type.startsWith('image') ? (
                       <img src={preview} alt="Preview" className="preview-media" />
-                    ) : (
+                    ) : file.type.startsWith('video') ? (
                       <video src={preview} controls className="preview-media" />
+                    ) : (
+                      <p>{file.name}</p>
                     )}
                     <button className="remove-preview" onClick={removePreview}>
                       ✕

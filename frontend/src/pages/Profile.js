@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import {  getUserById, updateProfile } from '../services/api';
+import { getUserById, updateProfile } from '../services/api';
 import '../css/Profile.css';
 
 const Profile = ({ userId, currentUser }) => {
@@ -8,7 +8,7 @@ const Profile = ({ userId, currentUser }) => {
     name: '',
     address: '',
     birthDate: '',
-    phone: '', // Vẫn giữ phone để hiển thị
+    phone: '',
   });
   const [isEditing, setIsEditing] = useState(false);
   const [preview, setPreview] = useState('');
@@ -21,6 +21,9 @@ const Profile = ({ userId, currentUser }) => {
         let userData;
         if (userId && userId !== currentUser?._id) {
           const { data } = await getUserById(userId);
+          if (!data) {
+            throw new Error('Không tìm thấy người dùng');
+          }
           userData = data;
         } else {
           userData = currentUser;
@@ -38,7 +41,11 @@ const Profile = ({ userId, currentUser }) => {
         setPreview(userData?.avatar || 'https://via.placeholder.com/100');
       } catch (err) {
         console.error('Error fetching user:', err);
-        setError(err.response?.data?.msg || 'Không thể tải thông tin người dùng.');
+        setError(
+          err.response?.data?.msg ||
+            err.message ||
+            'Không thể tải thông tin người dùng.'
+        );
       }
     };
     if (currentUser) {
@@ -94,7 +101,6 @@ const Profile = ({ userId, currentUser }) => {
       data.append('name', formData.name);
       data.append('address', formData.address);
       data.append('birthDate', formData.birthDate);
-      // Không gửi phone vì backend không hỗ trợ
 
       const { data: updatedUser } = await updateProfile(data);
       setUser(updatedUser);
@@ -175,7 +181,7 @@ const Profile = ({ userId, currentUser }) => {
                   value={formData.phone}
                   onChange={handleChange}
                   placeholder="Nhập số điện thoại"
-                  disabled // Vô hiệu hóa vì không cho phép chỉnh sửa
+                  disabled
                 />
               </div>
               <div className="form-group">
