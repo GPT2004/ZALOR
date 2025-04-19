@@ -3,29 +3,57 @@ const mongoose = require('mongoose');
 const cors = require('cors');
 const http = require('http');
 const { Server } = require('socket.io');
+const path = require('path');
 require('dotenv').config();
 const authRoutes = require('./routes/auth');
 const friendsRoutes = require('./routes/friends');
 const usersRoutes = require('./routes/users');
 const groupsRoutes = require('./routes/groups');
 const messageRoutes = require('./routes/messages');
-const User = require('./models/User'); // Import model User để cập nhật trạng thái
+const User = require('./models/User');
 process.env.LANG = 'en_US.UTF-8';
+
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: 'http://localhost:3000', // URL của frontend
+    origin: process.env.NODE_ENV === 'production' 
+      ? process.env.FRONTEND_URL 
+      : 'http://localhost:3000',
     methods: ['GET', 'POST'],
   },
+  path: '/socket.io',
 });
 
-// Gắn Socket.IO vào app để sử dụng trong routes
 app.set('socketio', io);
 
 // Middleware
 app.use(express.json());
 app.use(cors());
+
+app.use(express.static(path.join(__dirname, 'public')));
+// Route wildcard để phục vụ index.html cho tất cả các route không phải API
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+
+// Routes
+console.log('Registering routes:');
+app.use('/api/auth', authRoutes);
+logRoutes(authRoutes, '/api/auth');
+app.use('/api/friends', friendsRoutes);
+logRoutes(friendsRoutes, '/api/friends');
+app.use('/api/users', usersRoutes);
+logRoutes(usersRoutes, '/api/users');
+app.use('/api/groups', groupsRoutes);
+logRoutes(groupsRoutes, '/api/groups');
+app.use('/api/messages', messageRoutes);
+logRoutes(messageRoutes, '/api/messages');
+
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
 
 // Kết nối MongoDB
 mongoose
@@ -36,21 +64,10 @@ mongoose
   .then(() => console.log('MongoDB connected'))
   .catch((err) => console.error('MongoDB connection error:', err));
 
-// Routes
-app.use('/api/auth', authRoutes);
-app.use('/api/friends', friendsRoutes);
-app.use('/api/users', usersRoutes);
-app.use('/api/groups', groupsRoutes);
-app.use('/api/messages', messageRoutes);
-
-// Socket.IO
 io.on('connection', (socket) => {
   console.log('A user connected:', socket.id);
-
-  // Khi người dùng đăng nhập (gửi userId từ client)
   socket.on('userConnected', async (userId) => {
     try {
-      // Cập nhật trạng thái online trong cơ sở dữ liệu
       const user = await User.findByIdAndUpdate(
         userId,
         { isOnline: true },
@@ -60,11 +77,7 @@ io.on('connection', (socket) => {
         console.error(`User with ID ${userId} not found`);
         return;
       }
-
-      // Lưu userId vào socket để sử dụng khi disconnect
       socket.userId = userId;
-
-      // Thông báo trạng thái online đến tất cả client
       io.emit('userStatus', { userId, isOnline: true });
       console.log(`User ${userId} is online`);
     } catch (err) {
@@ -72,17 +85,14 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Tham gia phòng chat (1-1 hoặc nhóm)
   socket.on('joinRoom', (roomId) => {
     socket.join(roomId);
     console.log(`User ${socket.userId || 'unknown'} joined room: ${roomId}`);
   });
 
-  // Khi người dùng ngắt kết nối
   socket.on('disconnect', async () => {
     try {
       if (socket.userId) {
-        // Cập nhật trạng thái offline trong cơ sở dữ liệu
         const user = await User.findByIdAndUpdate(
           socket.userId,
           { isOnline: false },
@@ -92,8 +102,6 @@ io.on('connection', (socket) => {
           console.error(`User with ID ${socket.userId} not found`);
           return;
         }
-
-        // Thông báo trạng thái offline đến tất cả client
         io.emit('userStatus', { userId: socket.userId, isOnline: false });
         console.log(`User ${socket.userId} is offline`);
       }
